@@ -1,6 +1,9 @@
 package com.rocketsoft.cardatacollector;
 
 import android.app.Service;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.Sensor;
@@ -16,6 +19,9 @@ import android.provider.Settings;
 import android.support.annotation.Nullable;
 import android.util.Log;
 
+import java.io.IOException;
+import java.util.UUID;
+
 public class DataCollector extends Service {
 
     private LocationListener locationListener;
@@ -29,6 +35,25 @@ public class DataCollector extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+
+        String deviceAddress  = intent.getStringExtra("btAddress");
+
+        BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+        BluetoothDevice device = btAdapter.getRemoteDevice(deviceAddress);
+        UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+        BluetoothSocket socket = null;
+        try {
+            socket = device.createInsecureRfcommSocketToServiceRecord(uuid);
+            socket.connect();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return super.onStartCommand(intent, flags, startId);
     }
 
     @Override
