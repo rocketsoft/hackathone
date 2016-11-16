@@ -30,44 +30,29 @@ public class MainActivity extends AppCompatActivity {
     private Button stopBtn = null;
     private TextView gpsLog = null;
     private TextView accelLog = null;
-    private BroadcastReceiver locationBcReceiver = null;
-    private BroadcastReceiver sensorBcReceiver = null;
+    private BroadcastReceiver dataReciever = null;
     private String deviceAddress = null;
 
     @Override
     protected void onResume() {
         super.onResume();
 
-        if( locationBcReceiver == null) {
-            locationBcReceiver = new BroadcastReceiver() {
+        if (dataReciever == null) {
+            dataReciever = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    gpsLog.append( "\n GPS: " + intent.getExtras().get("location"));
+                    gpsLog.append("\n: " + intent.getExtras().get("json"));
                 }
             };
         }
-        registerReceiver( locationBcReceiver, new IntentFilter("location_update"));
-
-        if( sensorBcReceiver == null) {
-            sensorBcReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    accelLog.append( "\n ACCEL: " + intent.getExtras().get("accel"));
-                }
-            };
-        }
-        registerReceiver( sensorBcReceiver, new IntentFilter("sensor_update"));
+        registerReceiver(dataReciever, new IntentFilter("data_update"));
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if( locationBcReceiver != null) {
-            unregisterReceiver(locationBcReceiver);
-        }
-
-        if( sensorBcReceiver != null) {
-            unregisterReceiver(sensorBcReceiver);
+        if (dataReciever != null) {
+            unregisterReceiver(dataReciever);
         }
     }
 
@@ -90,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
 
         connectObdReader();
 
-        if(!getPermissions()) {
+        if (!getPermissions()) {
             enableButtons();
         }
     }
@@ -101,10 +86,8 @@ public class MainActivity extends AppCompatActivity {
 
         BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
         Set<BluetoothDevice> pairedDevices = btAdapter.getBondedDevices();
-        if (pairedDevices.size() > 0)
-        {
-            for (BluetoothDevice device : pairedDevices)
-            {
+        if (pairedDevices.size() > 0) {
+            for (BluetoothDevice device : pairedDevices) {
                 deviceStrs.add(device.getName() + "\n" + device.getAddress());
                 devices.add(device.getAddress());
             }
@@ -118,8 +101,7 @@ public class MainActivity extends AppCompatActivity {
 
         alertDialog.setSingleChoiceItems(adapter, -1, new DialogInterface.OnClickListener() {
             @Override
-            public void onClick(DialogInterface dialog, int which)
-            {
+            public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
                 int position = ((AlertDialog) dialog).getListView().getCheckedItemPosition();
                 deviceAddress = String.valueOf(devices.get(position));
@@ -135,7 +117,7 @@ public class MainActivity extends AppCompatActivity {
         final Intent intent = new Intent(this, DataCollector.class);
         startBtn.setEnabled(true);
 
-        startBtn.setOnClickListener( new View.OnClickListener() {
+        startBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 intent.putExtra("btAddress", deviceAddress);
@@ -145,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        stopBtn.setOnClickListener( new View.OnClickListener() {
+        stopBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 startBtn.setEnabled(true);
@@ -156,10 +138,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean getPermissions() {
-        if(Build.VERSION.SDK_INT >=  23 &&
-                ContextCompat.checkSelfPermission( this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission( this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions( new String[]{ Manifest.permission.ACCESS_FINE_LOCATION,
+        if (Build.VERSION.SDK_INT >= 23 &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION}, 100);
             return true;
         }
@@ -169,11 +151,11 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode,  permissions, grantResults);
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if( requestCode == 100)  {
-            if( grantResults[0] == PackageManager.PERMISSION_GRANTED &&
-                    grantResults[1] == PackageManager.PERMISSION_GRANTED ) {
+        if (requestCode == 100) {
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED &&
+                    grantResults[1] == PackageManager.PERMISSION_GRANTED) {
                 enableButtons();
             } else {
                 getPermissions();

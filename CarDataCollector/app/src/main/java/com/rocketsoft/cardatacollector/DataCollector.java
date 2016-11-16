@@ -17,10 +17,28 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.provider.Settings;
 import android.support.annotation.Nullable;
+import android.util.JsonWriter;
 import android.util.Log;
 
+import com.github.pires.obd.commands.SpeedCommand;
+import com.github.pires.obd.commands.engine.RPMCommand;
+import com.github.pires.obd.commands.protocol.EchoOffCommand;
+import com.github.pires.obd.commands.protocol.LineFeedOffCommand;
+import com.github.pires.obd.commands.protocol.SelectProtocolCommand;
+import com.github.pires.obd.commands.protocol.TimeoutCommand;
+import com.github.pires.obd.enums.ObdProtocols;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
+import java.io.StringWriter;
+import java.util.HashMap;
 import java.util.UUID;
+
+import static android.R.id.message;
+import static android.content.ContentValues.TAG;
 
 public class DataCollector extends Service {
 
@@ -30,6 +48,11 @@ public class DataCollector extends Service {
     private SensorEventListener sensorEventListener;
     private SensorManager sensorManager;
     private Sensor sensorAccelerometer;
+    BluetoothSocket socket = null;
+    private String rpm = "0";
+    private String speed = "0";
+    private double lat = 0.0;
+    private double lon = 0.0;
 
     @Nullable
     @Override
@@ -40,18 +63,46 @@ public class DataCollector extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
-        String deviceAddress  = intent.getStringExtra("btAddress");
+        final String deviceAddress = intent.getStringExtra("btAddress");
 
-        BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
-        BluetoothDevice device = btAdapter.getRemoteDevice(deviceAddress);
-        UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-        BluetoothSocket socket = null;
-        try {
-            socket = device.createInsecureRfcommSocketToServiceRecord(uuid);
-            socket.connect();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+                BluetoothDevice device = btAdapter.getRemoteDevice(deviceAddress);
+                UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+
+                try {
+                    socket = device.createInsecureRfcommSocketToServiceRecord(uuid);
+                    socket.connect();
+
+                    if (socket.isConnected()) {
+                        new EchoOffCommand().run(socket.getInputStream(), socket.getOutputStream());
+
+                        new LineFeedOffCommand().run(socket.getInputStream(), socket.getOutputStream());
+
+                        new TimeoutCommand(5000).run(socket.getInputStream(), socket.getOutputStream());
+
+                        new SelectProtocolCommand(ObdProtocols.AUTO).run(socket.getInputStream(), socket.getOutputStream());
+
+                        RPMCommand engineRpmCommand = new RPMCommand();
+                        SpeedCommand speedCommand = new SpeedCommand();
+                        while (!Thread.currentThread().isInterrupted()) {
+                            engineRpmCommand.run(socket.getInputStream(), socket.getOutputStream());
+                            speedCommand.run(socket.getInputStream(), socket.getOutputStream());
+                            rpm = engineRpmCommand.getFormattedResult();
+                            speed  = speedCommand.getFormattedResult();
+                        }
+                    }
+
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
 
         return super.onStartCommand(intent, flags, startId);
     }
@@ -61,9 +112,8 @@ public class DataCollector extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(Location location) {
-                Intent i = new Intent("location_update");
-                i.putExtra("location", "Lon:"+ location.getLongitude() + ", Lat:" + location.getLatitude());
-                sendBroadcast(i);
+                lat = location.getLongitude();
+                lon = location.getLatitude();
             }
 
             @Override
@@ -92,8 +142,21 @@ public class DataCollector extends Service {
                     float yAxs = sensorEvent.values[1];
                     float zAxs = sensorEvent.values[2];
 
-                    Intent i = new Intent("sensor_update");
-                    i.putExtra("accel","X:" + xAxs +", Y:" + yAxs + ", Z:" + zAxs);
+                    JSONObject json = new JSONObject();
+                    try {
+                        json.put("lat",lat);
+                        json.put("lon",lon);
+                        json.put("x",xAxs);
+                        json.put("y",yAxs);
+                        json.put("z",zAxs);
+                        json.put("speed",speed);
+                        json.put("rpm",rpm);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                    Intent i = new Intent("data_update");
+                    i.putExtra("json", json.toString());
                     sendBroadcast(i);
                 }
             }
@@ -111,11 +174,9 @@ public class DataCollector extends Service {
 
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 500, 0, locationListener);
             sensorManager.registerListener(sensorEventListener, sensorAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
-        }
-        catch( SecurityException ex){
+        } catch (SecurityException ex) {
             Log.d("X", "SecurityException while registering listeners : " + ex.getMessage());
-        }
-        catch( Exception ex) {
+        } catch (Exception ex) {
             Log.d("X", "Exception while registering listeners : " + ex.getMessage());
         }
     }
@@ -125,18 +186,22 @@ public class DataCollector extends Service {
         super.onDestroy();
 
         try {
-            if( locationManager != null) {
+
+            if (null != socket) {
+                socket.close();
+                socket = null;
+            }
+
+            if (locationManager != null) {
                 locationManager.removeUpdates(locationListener);
             }
 
-            if( sensorManager != null) {
+            if (sensorManager != null) {
                 sensorManager.unregisterListener(sensorEventListener, sensorAccelerometer);
             }
-        }
-        catch( SecurityException ex){
+        } catch (SecurityException ex) {
             Log.d("X", "SecurityException while onDestroy");
-        }
-        catch( Exception ex) {
+        } catch (Exception ex) {
             Log.d("X", "Exception while onDestroy");
         }
     }
