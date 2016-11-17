@@ -22,6 +22,7 @@ import android.util.Log;
 
 import com.github.pires.obd.commands.SpeedCommand;
 import com.github.pires.obd.commands.engine.RPMCommand;
+import com.github.pires.obd.commands.engine.ThrottlePositionCommand;
 import com.github.pires.obd.commands.protocol.EchoOffCommand;
 import com.github.pires.obd.commands.protocol.LineFeedOffCommand;
 import com.github.pires.obd.commands.protocol.SelectProtocolCommand;
@@ -51,8 +52,10 @@ public class DataCollector extends Service {
     BluetoothSocket socket = null;
     private String rpm = "0";
     private String speed = "0";
+    private String throttle = "0";
     private double lat = 0.0;
     private double lon = 0.0;
+
 
     @Nullable
     @Override
@@ -64,7 +67,6 @@ public class DataCollector extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
 
         final String deviceAddress = intent.getStringExtra("btAddress");
-
 
         new Thread(new Runnable() {
             @Override
@@ -88,11 +90,15 @@ public class DataCollector extends Service {
 
                         RPMCommand engineRpmCommand = new RPMCommand();
                         SpeedCommand speedCommand = new SpeedCommand();
+                        ThrottlePositionCommand throttleCommand = new ThrottlePositionCommand();
+
                         while (!Thread.currentThread().isInterrupted()) {
                             engineRpmCommand.run(socket.getInputStream(), socket.getOutputStream());
                             speedCommand.run(socket.getInputStream(), socket.getOutputStream());
+                            throttleCommand.run(socket.getInputStream(), socket.getOutputStream());
                             rpm = engineRpmCommand.getFormattedResult();
-                            speed  = speedCommand.getFormattedResult();
+                            speed = speedCommand.getFormattedResult();
+                            throttle = speedCommand.getFormattedResult();
                         }
                     }
 
@@ -103,6 +109,7 @@ public class DataCollector extends Service {
                 }
             }
         }).start();
+
 
         return super.onStartCommand(intent, flags, startId);
     }
@@ -138,19 +145,18 @@ public class DataCollector extends Service {
             @Override
             public void onSensorChanged(SensorEvent sensorEvent) {
                 if (sensorEvent.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-                    float xAxs = sensorEvent.values[0];
-                    float yAxs = sensorEvent.values[1];
-                    float zAxs = sensorEvent.values[2];
 
                     JSONObject json = new JSONObject();
                     try {
-                        json.put("lat",lat);
-                        json.put("lon",lon);
-                        json.put("x",xAxs);
-                        json.put("y",yAxs);
-                        json.put("z",zAxs);
-                        json.put("speed",speed);
-                        json.put("rpm",rpm);
+                        json.put("lat", lat);
+                        json.put("lon", lon);
+                        json.put("x", sensorEvent.values[0]);
+                        json.put("y", sensorEvent.values[1]);
+                        json.put("z", sensorEvent.values[2]);
+                        json.put("spd", speed);
+                        json.put("rpm", rpm);
+                        json.put("thr", throttle);
+
                     } catch (JSONException e) {
                         e.printStackTrace();
                     }
@@ -172,8 +178,10 @@ public class DataCollector extends Service {
             sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
             sensorAccelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
 
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 500, 0, locationListener);
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 500, 0, locationListener);
-            sensorManager.registerListener(sensorEventListener, sensorAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+            sensorManager.registerListener(sensorEventListener, sensorAccelerometer, SensorManager.SENSOR_DELAY_UI);
+
         } catch (SecurityException ex) {
             Log.d("X", "SecurityException while registering listeners : " + ex.getMessage());
         } catch (Exception ex) {

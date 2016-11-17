@@ -12,16 +12,26 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
@@ -32,6 +42,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView accelLog = null;
     private BroadcastReceiver dataReciever = null;
     private String deviceAddress = null;
+    private boolean isEmptyLog = true;
 
     @Override
     protected void onResume() {
@@ -41,7 +52,11 @@ public class MainActivity extends AppCompatActivity {
             dataReciever = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    gpsLog.append("\n: " + intent.getExtras().get("json"));
+                    if(!isEmptyLog) {
+                        gpsLog.append(",");
+                    }
+                    gpsLog.append("\n" + intent.getExtras().get("json"));
+                    isEmptyLog = false;
                 }
             };
         }
@@ -70,14 +85,14 @@ public class MainActivity extends AppCompatActivity {
         gpsLog = (TextView) findViewById(R.id.gpsLog);
         gpsLog.setMovementMethod(new ScrollingMovementMethod());
 
-        accelLog = (TextView) findViewById(R.id.accelLog);
-        accelLog.setMovementMethod(new ScrollingMovementMethod());
-
-        connectObdReader();
-
-        if (!getPermissions()) {
+        if (!getGpsPermissions() ) {
             enableButtons();
         }
+
+        getSensorPermissions();
+        getDiskPermissions();
+
+        connectObdReader();
     }
 
     private void connectObdReader() {
@@ -123,7 +138,9 @@ public class MainActivity extends AppCompatActivity {
                 intent.putExtra("btAddress", deviceAddress);
                 startBtn.setEnabled(false);
                 stopBtn.setEnabled(true);
+                gpsLog.setText("");
                 startService(intent);
+                isEmptyLog = true;
             }
         });
 
@@ -133,14 +150,26 @@ public class MainActivity extends AppCompatActivity {
                 startBtn.setEnabled(true);
                 stopBtn.setEnabled(false);
                 stopService(intent);
+
+                StringBuilder strBldr  = new StringBuilder();
+                strBldr.append("{\"data\":[");
+                strBldr.append(gpsLog.getText());
+                strBldr.append("]}");
+
+
+                if(canWriteOnExternalStorage()) {
+                    writeToFile(strBldr.toString(), getApplicationContext());
+                }
             }
         });
     }
 
-    private boolean getPermissions() {
+    private boolean getGpsPermissions() {
+
         if (Build.VERSION.SDK_INT >= 23 &&
                 ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)  {
+
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION}, 100);
             return true;
@@ -148,6 +177,31 @@ public class MainActivity extends AppCompatActivity {
 
         return false;
     }
+
+    private boolean getSensorPermissions() {
+        if (Build.VERSION.SDK_INT >= 23 &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.VIBRATE) != PackageManager.PERMISSION_GRANTED)  {
+
+            requestPermissions(new String[]{Manifest.permission.VIBRATE}, 101);
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean getDiskPermissions() {
+        if (Build.VERSION.SDK_INT >= 23 &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)  {
+
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE}, 102);
+            return true;
+        }
+
+        return false;
+    }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -158,8 +212,53 @@ public class MainActivity extends AppCompatActivity {
                     grantResults[1] == PackageManager.PERMISSION_GRANTED) {
                 enableButtons();
             } else {
-                getPermissions();
+                getGpsPermissions();
             }
+        }
+
+        if (requestCode == 101) {
+            if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+                getSensorPermissions();
+            }
+        }
+
+        if (requestCode == 102) {
+            if (grantResults[0] != PackageManager.PERMISSION_GRANTED &&
+                    grantResults[1] != PackageManager.PERMISSION_GRANTED) {
+                getDiskPermissions();
+            }
+        }
+    }
+
+    public static boolean canWriteOnExternalStorage() {
+        String state = Environment.getExternalStorageState();
+        if (Environment.MEDIA_MOUNTED.equals(state)) {
+            Log.v("X", "Yes, can write to external storage.");
+            return true;
+        }
+        return false;
+    }
+
+    private void writeToFile(String data,Context context) {
+        try {
+            String tripFileName = new SimpleDateFormat("'TRIP_'yyyyMMddhhmm'.json'").format(new Date());
+
+            File saveDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS);
+
+            File saveDir = new File(saveDirectory.getAbsolutePath() + "/TRIP_FILES/");
+            if(!saveDir.exists()) {
+                saveDir.mkdir();
+            }
+
+            File file = new File(saveDir, tripFileName);
+            FileOutputStream outStream = new FileOutputStream(file);
+            outStream.write(data.getBytes());
+            outStream.close();
+
+            Toast.makeText(context, "Saved : " + tripFileName, Toast.LENGTH_SHORT).show();
+        }
+        catch (IOException e) {
+            Log.e("X", "File write failed: " + e.toString());
         }
     }
 }
