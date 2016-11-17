@@ -21,6 +21,7 @@ import android.util.JsonWriter;
 import android.util.Log;
 
 import com.github.pires.obd.commands.SpeedCommand;
+import com.github.pires.obd.commands.engine.LoadCommand;
 import com.github.pires.obd.commands.engine.RPMCommand;
 import com.github.pires.obd.commands.engine.ThrottlePositionCommand;
 import com.github.pires.obd.commands.protocol.EchoOffCommand;
@@ -50,11 +51,12 @@ public class DataCollector extends Service {
     private SensorManager sensorManager;
     private Sensor sensorAccelerometer;
     BluetoothSocket socket = null;
-    private String rpm = "0";
-    private String speed = "0";
+    private int rpm = 0;
+    private int speed = 0;
     private String throttle = "0";
     private double lat = 0.0;
     private double lon = 0.0;
+    private String load = "0.0";
 
 
     @Nullable
@@ -91,14 +93,18 @@ public class DataCollector extends Service {
                         RPMCommand engineRpmCommand = new RPMCommand();
                         SpeedCommand speedCommand = new SpeedCommand();
                         ThrottlePositionCommand throttleCommand = new ThrottlePositionCommand();
+                        LoadCommand loadCommand = new LoadCommand();
 
                         while (!Thread.currentThread().isInterrupted()) {
                             engineRpmCommand.run(socket.getInputStream(), socket.getOutputStream());
                             speedCommand.run(socket.getInputStream(), socket.getOutputStream());
                             throttleCommand.run(socket.getInputStream(), socket.getOutputStream());
-                            rpm = engineRpmCommand.getFormattedResult();
-                            speed = speedCommand.getFormattedResult();
-                            throttle = speedCommand.getFormattedResult();
+                            loadCommand.run(socket.getInputStream(), socket.getOutputStream());
+
+                            rpm = engineRpmCommand.getRPM();
+                            speed = speedCommand.getMetricSpeed();
+                            throttle = throttleCommand.getResult();
+                            load = loadCommand.getResult();
                         }
                     }
 
@@ -150,12 +156,15 @@ public class DataCollector extends Service {
                     try {
                         json.put("lat", lat);
                         json.put("lon", lon);
+
                         json.put("x", sensorEvent.values[0]);
                         json.put("y", sensorEvent.values[1]);
                         json.put("z", sensorEvent.values[2]);
+
                         json.put("spd", speed);
                         json.put("rpm", rpm);
                         json.put("thr", throttle);
+                        json.put("load", load);
 
                     } catch (JSONException e) {
                         e.printStackTrace();
